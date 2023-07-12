@@ -110,8 +110,6 @@ spec:
           name: vol-customers-ms-nginx-temp
         - mountPath: /var/www
           name: vol-customers-ms-myapp
-        - mountPath: /tmp
-          name: vol-tmp-customers-ms-nginx
         - mountPath: /etc/nginx/nginx.conf
           name: vol-cm-customers-ms-nginx
           subPath: nginx-conf-key
