@@ -1,0 +1,26 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customers-ms
+  # namespace: customers
+spec:
+  ports:
+  - name: http
+    port: 56417
+    targetPort: 56417
+  - name: grpc
+    port: 56418
+    targetPort: 56418
+  selector:
+    app.kubernetes.io/name: customers-ms
+    app.kubernetes.io/component: ms
+    app.kubernetes.io/part-of: customers
+    # env: production
+    # release-type: canary
+    # sla-class: general
+    # tier: backend
+    # cicd: manual
+  # Change this type to NodePort if you use Minikube.
+  type: ClusterIP
+  sessionAffinity: None

@@ -1,0 +1,215 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kubernetes.io/change-cause: app revision SHORT_SHA
+  name: customers-ms
+  # namespace: customers
+  labels:
+    app.kubernetes.io/name: customers-ms
+    app.kubernetes.io/component: ms
+    app.kubernetes.io/part-of: customers
+    app.kubernetes.io/version: "SHORT_SHA"
+    app.kubernetes.io/managed-by: manual
+spec:
+  progressDeadlineSeconds: 600
+  # replicas: 1 # controlado pelo horizontal pod autoscaler
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: customers-ms
+      app.kubernetes.io/component: ms
+      app.kubernetes.io/part-of: customers
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: customers-ms
+        app.kubernetes.io/component: ms
+        app.kubernetes.io/part-of: customers
+        app.kubernetes.io/version: "SHORT_SHA"
+        app.kubernetes.io/managed-by: manual
+      name: customers-ms
+      # namespace: customers
+    spec:
+      # serviceAccountName: customers-ms
+      # nodeSelector:
+      #   kubernetes.io/os: linux
+      securityContext:
+        {}
+        # Pod Security Context
+        # https://kubernetes.io/docs/tasks/configure-pod-container/security-context
+        # https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#podsecuritycontext-v1-core
+        # allowPrivilegeEscalation: false
+        # readOnlyRootFilesystem: true
+        # runAsNonRoot: true
+        # runAsUser: 10000
+        # runAsGroup: 10000
+        # fsGroup: 10000
+      containers:
+      - image: nginx:1.25-alpine
+        imagePullPolicy: Always # IfNotPresent
+        name: nginx
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        # lifecycle:
+        #   postStart:
+        #     exec:
+        #       command: ["/bin/sh", "-c", "echo Hello from the postStart handler > /usr/share/message"]
+        #   preStop:
+        #     exec:
+        #       #SIGTERM triggers a quick exit; gracefully terminate instead
+        #       command: ["/usr/sbin/nginx","-s","quit"]
+        #       command: ["/bin/sh","-c","nginx -s quit; while killall -0 nginx; do sleep 1; done"]
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "16Mi"
+            ephemeral-storage: "10Mi"
+          limits:
+            cpu: "50m"
+            memory: "32Mi"
+            ephemeral-storage: "100Mi"
+        # startupProbe:
+        #   tcpSocket:
+        #     port: 9000
+        #   initialDelaySeconds: 3
+        #   periodSeconds: 5
+        # livenessProbe:
+        #   tcpSocket:
+        #     port: 8080
+        #   initialDelaySeconds: 5
+        #   periodSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /ready.html
+            port: 80
+            httpHeaders:
+            - name: Host
+              value: customers.local
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        securityContext:
+          # Container Security
+          # https://kubernetes.io/docs/tasks/configure-pod-container/security-context
+          # allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10000
+          runAsGroup: 10000
+        volumeMounts:
+        # - mountPath: /var/log/nginx
+        #   name: logs
+        - mountPath: /tmp
+          name: vol-customers-ms-nginx-temp
+        - mountPath: /var/www
+          name: vol-customers-ms-myapp
+        - mountPath: /tmp
+          name: vol-tmp-customers-ms-nginx
+        - mountPath: /etc/nginx/nginx.conf
+          name: vol-cm-customers-ms-nginx
+          subPath: nginx-conf-key
+        - mountPath: /etc/nginx/conf.d/upstream.conf
+          name: vol-cm-customers-ms-nginx
+          subPath: upstream-conf-key
+        - mountPath: /etc/nginx/sites-available/default.conf
+          name: vol-cm-customers-ms-nginx
+          subPath: default-conf-key
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - image: gcr.io/{{PROJECT_ID}}/pnw-customers-ms-app:SHORT_SHA
+        command:
+        - sh
+        - -c
+        - cp -R /app/* /myapp && cp /dotenv/.env /myapp
+        imagePullPolicy: Always # IfNotPresent
+        name: init
+        resources:
+          #use at least minimal resources to avoid LimitRanger plugin and also to get a glimpse of how much is really needed
+          requests:
+            cpu: "10m"
+            memory: "16Mi"
+            ephemeral-storage: "10Mi"
+          limits:
+            cpu: "50m"
+            memory: "32Mi"
+            ephemeral-storage: "100Mi"
+        securityContext:
+          # https://kubernetes.io/docs/tasks/configure-pod-container/security-context
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 50000
+          runAsGroup: 50000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /myapp
+          name: vol-customers-ms-myapp
+        - mountPath: /dotenv/.env
+          name: vol-cm-customers-ms-app
+          subPath: dot-env-key
+        - mountPath: /config/service-account.json
+          name: vol-sec-customers-ms-gcp-sa
+          subPath: service-account.json
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+      affinity:
+        podAffinity:
+          # this Pod should run in an X node if that X node is already running one or more pods that meet rule Y
+          # X = topologyKey
+          # Y = labelSelector
+          {}
+        podAntiAffinity:
+          # this Pod should NOT run in an X node if that X node is already running one or more pods that meet rule Y
+          # X = topologyKey
+          # Y = labelSelector
+          # {}
+          preferredDuringSchedulingIgnoredDuringExecution: 
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                # labels do pod
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In # In, NotIn, Exists, DoesNotExist
+                  values:
+                  - customers-ms
+              topologyKey: kubernetes.io/hostname
+              # kubernetes.io/hostname=...
+              # topology.kubernetes.io/region=...
+              # topology.kubernetes.io/zone=...
+              # cloud.google.com/gke-nodepool=...
+      volumes:
+      - name: vol-customers-ms-myapp
+        emptyDir: {}
+      - name: vol-cm-customers-ms-app
+        configMap:
+          defaultMode: 420
+          name: customers-ms-app
+      - name: vol-sec-customers-ms-gcp-sa
+        secret:
+          defaultMode: 420
+          secretName: customers-ms-app
+      - name: vol-cm-customers-ms-nginx
+        configMap:
+          defaultMode: 420
+          name: customers-ms-nginx
+      - name: vol-tmp-customers-ms-nginx
+        emptyDir: {}
+      - name: vol-cm-customers-ms-php
+        configMap:
+          defaultMode: 420
+          name: customers-ms-php
+      - name: vol-customers-ms-php-temp
+        emptyDir: {}
+      - name: vol-customers-ms-nginx-temp
+        emptyDir: {}
